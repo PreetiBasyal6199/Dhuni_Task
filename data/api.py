@@ -36,22 +36,33 @@ class CandidateSkillListCreateView(DynamicSerializerClassMixin, generics.ListCre
 
 
 
-class MostMatchedCandidateListView(views.APIView):
+class MostMatchedCandidateListView(generics.CreateAPIView):
+    serializer_class = SelectJobSerializer
+    queryset = Job.objects.all()
+
+    def paginate_queryset(self, queryset):
+        """
+        Return a single page of results, or `None` if pagination is disabled.
+        """
+        if self.paginator is None:
+            return None
+        return self.paginator.paginate_queryset(queryset, self.request, view=self)
 
     def post(self,request, *args, **kwargs):
         '''
         input argument: 'title'
         out_put arguments: 'first_name','last_name'
         '''
-        serializer = SelectJobSerializer(data=request.data)
+        serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        job_title = serializer.validated_data["title"]
+        job_title = serializer.validated_data.get("title")
         job = get_object_or_404(Job, title=job_title.lower())
         job_skills = job.jobskill_set.all().values_list("skill", flat=True)
         candidates = Candidate.objects.filter(candidateskill__skill__in=job_skills).annotate(
             skills_matching_count=Count('candidateskill__skill')).order_by('-skills_matching_count')
         if candidates:
-            return Response(MostMatchedCandidateListSerialzier(candidates, many=True).data)
+            serializer=MostMatchedCandidateListSerialzier(self.paginate_queryset(candidates), many=True)
+            return(self.get_paginated_response(serializer.data)) 
         return Response({
             'error':'No Candidates found with matching job skills.', 
         }, status= 404)
